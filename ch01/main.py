@@ -1,14 +1,36 @@
 from datetime import date, datetime
 import random
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, Form, Cookie, Response
 from typing import Optional, List, Dict
 from pydantic import BaseModel
+from enum import Enum
+from typing import Optional, List, Dict
+from uuid import UUID, uuid1
+
+from bcrypt import hashpw, gensalt, checkpw
+from datetime import date, datetime
+
+from string import ascii_lowercase
+from random import random
 
 app = FastAPI()
+
+valid_users = dict()
+valid_profiles = dict()
+pending_users = dict()
+discussion_posts = dict()
+request_headers = dict()
+cookies = dict()
 
 class User(BaseModel):
     username: str
     password: str
+
+class UserType(str, Enum):
+    admin = "admin"
+    teacher = "teacher"
+    alumni = "alumni"
+    student = "student"
 
 class UserProfile(BaseModel):
     firstname: str  
@@ -24,6 +46,17 @@ class ValidUser(BaseModel):
     username: str
     password: str
     passphrase: str
+
+class PostType(str, Enum):
+    information = "information" 
+    inquiry = "inquiry"
+    quote = "quote"
+    twit = "twit"
+    
+class Post(BaseModel):
+    topic: Optional[str] = None
+    message: str
+    date_posted: datetime
 
 class ForumPost(BaseModel):
     id: UUID
@@ -118,7 +151,7 @@ def login_with_token(username: str, password: str, id: UUID):
     if valid_users.get(username) == None:
         return {"message": "user does not exist"}
     else:
-        user = vaid_users[username]
+        user = valid_users[username]
         if user.id == id and checkpw(password.encode(), user.passphrase):
             return user
         else:
@@ -161,8 +194,8 @@ def update_profile_names(id: UUID, username: str = '', new_names: Optional[Dict[
         user = valid_users.get(username)
         if user.id == id:
             profile = valid_profiles[username]
-            profile.firstname = new_name["fname"]
-            profile.lastname = new_name['lname']
+            profile.firstname = new_names["fname"]
+            profile.lastname = new_names['lname']
             profile.middle_initial = new_names['mi']
             valid_profiles[username] = profile
             return {"message": "successfully updated"}
@@ -191,4 +224,69 @@ def update_profile(username: str, id: UUID, new_profile: UserProfile):
         else:
             return {"message": "user does not exist"}
     
+@app.get("/ch01/headers/verify")
+def verify_headers(host: Optional[str] = Header(None),
+                   accept: Optional[str] = Header(None),
+                   accept_language: Optional[str] = Header(None),
+                   accept_encoding: Optional[str] = Header(None),
+                   user_agent: Optional[str] = Header(None)
+                   ):
+    request_headers["Host"] = host
+    request_headers["Accept"] = accept
+    request_headers["Accept-Language"] = accept-accept_language
+    request_headers["Accept-Encoding"] = accept_encoding
+    request_headers["User-Agent"] = user_agent
+    return request_headers
 
+@app.post("/ch01/discussion/posts/add/{username}")
+def post_discussion(username: str, post: Post, post_type: PostType):
+    if valid_users.get(username) == None: 
+        return {"message": "user does not exist"}
+    elif not (discussion_posts.get(id) == None):
+        return {"message": "post alr exists"}
+    else:
+        forum_post = ForumPost(id=uuid1(), topic=post.topic, message=post.message, post_type=post_type, date_posted=post.date_posted, username=username)
+        user = valid_profiles[username]
+        forum = ForumDiscussion(id=uuid1(), main_post=forum_post, author=user, replies=list())
+        discussion_posts[forum.id] = forum
+        return forum
+
+@app.post("/ch01/account/profile/add", response_model=ValidUser)
+def approve_user(user: User):
+    
+    if not valid_users.get(user.username) == None:
+        return ValidUser(id=None, username=None, password=None, passphrase=None)
+    else:
+        valid_user = ValidUser(id=uuid1(), username=user.username, password=user.password, passphrase=hashpw(user.password.encode(), gensalt()))
+        valid_users[user.username] = valid_user
+        del pending_users[user.username]
+        return valid_user
+
+@app.post("/ch01/account/profile/add", response_model=UserProfile)
+def add_profile(uname: str,
+                fname: str = Form(...),
+                lname: str = Form(...),
+                mid_init: str = Form(...),
+                user_age: int = Form(...),
+                sal: float = Form(...),
+                bday: str = Form(...),
+                utype: UserType = Form(...)):
+    if valid_users.get(uname) == None:
+        return UserProfile(firstname=None, lastname=None, middle_initial=None, age=None, birthday=None, salary=None, user_type=None)
+    else:
+        profile = UserProfile(firstname=fname, lastname=lname, middle_initial=mid_init, age=user_age, birthday=datetime.strptime(bday, '%m/%d/%Y'), salary=sal, user_type=utype)
+        valid_profiles[uname] = profile
+        return profile
+
+@app.post("/ch01/login/rememberme/create/")
+def create_cookies(resp: Response, id: UUID, username: str = ''):
+    resp.set_cookie(key="userkey", value=username)
+    resp.set_cookie(key="identity", value=str(id))
+    return {"message": "remember-me tokens created"}
+
+@app.get("/ch01/login/cookies")
+def access_cookie(userkey: Optional[str] = Cookie(None),
+                  identity: Optional[str] = Cookie(None)):
+    cookies["userkey"] = userkey
+    cookies["identity"] = identity
+    return cookies
